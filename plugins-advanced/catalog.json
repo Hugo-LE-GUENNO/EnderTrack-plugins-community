@@ -6,6 +6,6 @@
     "description": "Customizable keyboard + gamepad mapping — profiles, remappable actions",
     "author": "Hugo Le Guenno",
     "folder": "gamepad-advanced",
-    "main": "plugin.json"
+    "files": ["plugin.json", "bridge.js", "ui.js", "ui.css", "action-mapper.js", "canvas-patches.js", "continuous-move.js", "gamepad-input.js", "key-directions.js"]
   }
 ]
