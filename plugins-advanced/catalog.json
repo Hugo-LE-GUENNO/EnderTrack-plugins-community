@@ -1,0 +1,11 @@
+[
+  {
+    "id": "gamepad-advanced",
+    "name": "Gamepad Advanced",
+    "version": "1.0.0",
+    "description": "Customizable keyboard + gamepad mapping — profiles, remappable actions",
+    "author": "Hugo Le Guenno",
+    "folder": "gamepad-advanced",
+    "main": "plugin.json"
+  }
+]

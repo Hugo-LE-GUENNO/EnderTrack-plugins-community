@@ -1,0 +1,11 @@
+[
+  {
+    "id": "tempo-bed",
+    "name": "Tempo Bed",
+    "version": "1.0.0",
+    "description": "Heated bed temperature controller",
+    "author": "Hugo Le Guenno",
+    "folder": "tempo-bed",
+    "main": "tempo-bed.py"
+  }
+]
