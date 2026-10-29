@@ -1,7 +1,7 @@
-// plugins/external-controller/bridge.js
+// plugins/gamepad-advanced/bridge.js
 // PiloteMoi+ — PiloteMoi with customizable button mapping & action system
 
-class ExternalControllerBridge {
+class GamepadAdvancedBridge {
   constructor() {
     this.isActive = false;
     this.mode = 'step';
@@ -44,14 +44,14 @@ class ExternalControllerBridge {
       s.onload = cb;
       document.head.appendChild(s);
     };
-    load('plugins/external-controller/key-directions.js', () => {
+    load('plugins/gamepad-advanced/key-directions.js', () => {
       this._kd = new window.KeyDirections(() => {}, () => {});
-      load('plugins/external-controller/continuous-move.js', () => {
+      load('plugins/gamepad-advanced/continuous-move.js', () => {
         this._cm = new window.ContinuousMove();
         this._cm.calibrate();
-        load('plugins/external-controller/canvas-patches.js', () => {
+        load('plugins/gamepad-advanced/canvas-patches.js', () => {
           window.CV2Patches?.install();
-          load('plugins/external-controller/gamepad-input.js', () => {
+          load('plugins/gamepad-advanced/gamepad-input.js', () => {
             this._gp = new window.GamepadInput(this);
             // Override _execAction to use ActionMapper
             this._gp._execAction = (action) => this._mapper?.exec(action);
@@ -91,7 +91,7 @@ class ExternalControllerBridge {
                 this._gp._dpadHeld = this._gp._dpadPending;
               }
             };
-            load('plugins/external-controller/action-mapper.js', () => {
+            load('plugins/gamepad-advanced/action-mapper.js', () => {
               this._mapper = new window.ActionMapper();
               this._gp._btnActions = this._mapper.getMapping();
               // Start gamepad if already active
@@ -457,4 +457,4 @@ class ExternalControllerBridge {
   }
 }
 
-window.ExternalControllerBridge = ExternalControllerBridge;
+window.GamepadAdvancedBridge = GamepadAdvancedBridge;

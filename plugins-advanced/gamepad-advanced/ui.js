@@ -1,6 +1,6 @@
-// plugins/external-controller/ui.js
+// plugins/gamepad-advanced/ui.js
 
-class ExternalControllerPluginUI {
+class GamepadAdvancedPluginUI {
   constructor(manifest, bridge) {
     this.manifest = manifest;
     this.bridge = bridge;
@@ -175,7 +175,7 @@ class ExternalControllerPluginUI {
     if (!mapper) {
       // Load script manually if not yet loaded
       const s = document.createElement('script');
-      s.src = 'plugins/external-controller/action-mapper.js';
+      s.src = 'plugins/gamepad-advanced/action-mapper.js';
       s.onload = () => {
         this.bridge._mapper = new window.ActionMapper();
         if (this.bridge._gp) this.bridge._gp._btnActions = this.bridge._mapper.getMapping();
@@ -709,4 +709,4 @@ class ExternalControllerPluginUI {
   }
 }
 
-window.ExternalControllerPluginUI = ExternalControllerPluginUI;
+window.GamepadAdvancedPluginUI = GamepadAdvancedPluginUI;

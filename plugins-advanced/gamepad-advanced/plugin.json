@@ -1,10 +1,10 @@
 {
-  "id": "externalController",
+  "id": "gamepadAdvanced",
   "name": "Gamepad Advanced",
-  "folder": "external-controller",
+  "folder": "gamepad-advanced",
   "version": "1.0.0",
-  "description": "Mapping personnalisable clavier + gamepad — profils, actions remappables",
-  "icon": "",
+  "description": "Customizable keyboard + gamepad mapping — profiles, remappable actions",
+  "icon": "🎮",
   "tools": [],
   "widgets": [],
   "navButtons": []

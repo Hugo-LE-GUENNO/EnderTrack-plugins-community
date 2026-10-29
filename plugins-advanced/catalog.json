@@ -1,6 +1,6 @@
 [
   {
-    "id": "gamepad-advanced",
+    "id": "gamepadAdvanced",
     "name": "Gamepad Advanced",
     "version": "1.0.0",
     "description": "Customizable keyboard + gamepad mapping — profiles, remappable actions",
