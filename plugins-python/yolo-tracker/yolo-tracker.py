@@ -46,6 +46,7 @@ _tracking    = False
 MOVE_THRESHOLD_PX = 15
 MAX_FEEDRATE      = 3000
 MIN_FEEDRATE      = 300
+DAMPING           = 0.4  # fraction du delta appliquee par frame (0.1-1.0)
 
 
 def _safe_float(v, default):
@@ -247,7 +248,9 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                             if stage is not None:
                                 feed = int(MIN_FEEDRATE + (MAX_FEEDRATE - MIN_FEEDRATE) *
                                            min(err_px / (w / 2.0), 1.0))
-                                stage.move_relative(dx=dx_mm, dy=dy_mm, dz=0.0, feedrate=feed)
+                                stage.move_relative(dx=dx_mm * DAMPING, dy=dy_mm * DAMPING,
+                                                    dz=0.0, feedrate=feed)
+                                stage.finish_moves()
                                 pos = stage.position
                                 ctx.update_output(
                                     "coordinates",
