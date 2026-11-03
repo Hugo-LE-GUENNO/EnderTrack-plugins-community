@@ -1,6 +1,14 @@
+import os
 import threading
 import time
 import traceback
+
+try:
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _HERE = "."
+
+MODELS_DIR = os.path.join(_HERE, "models")
 
 NAME = "YOLO Tracker"
 VERSION = "1.1.0"
@@ -9,7 +17,7 @@ DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 SECTIONS = {
     "navigation": {
         "inputs": [
-            {"type": "file",   "id": "model_path",   "label": "Model (.pt)",      "accept": ".pt"},
+            {"type": "input", "id": "model_path", "label": "Model path (.pt)", "default": os.path.join(MODELS_DIR, "model.pt")},
             {"type": "input",  "id": "confidence",   "label": "Min confidence",   "default": "0.30"},
             {"type": "button", "label": "Start live", "action": "start_live",     "style": "primary"},
             {"type": "button", "label": "Stop live",  "action": "stop_live"},
