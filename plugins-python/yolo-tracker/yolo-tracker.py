@@ -18,13 +18,14 @@ SECTIONS = {
     "navigation": {
         "inputs": [
             {"type": "input", "id": "model_path", "label": "Model path (.pt)", "default": os.path.join(MODELS_DIR, "model.pt")},
-            {"type": "input",  "id": "confidence",   "label": "Min confidence",   "default": "0.30"},
-            {"type": "button", "label": "Start live", "action": "start_live",     "style": "primary"},
-            {"type": "button", "label": "Stop live",  "action": "stop_live"},
-            {"type": "input",  "id": "target_id",    "label": "Track ID",         "default": ""},
-            {"type": "input",  "id": "lost_timeout", "label": "Lost timeout (s)", "default": "4"},
-            {"type": "button", "label": "Track",      "action": "select_target",  "style": "primary"},
-            {"type": "button", "label": "Stop track", "action": "stop_track"},
+            {"type": "input",    "id": "confidence",   "label": "Min confidence",        "default": "0.25"},
+            {"type": "button",   "label": "Start live",  "action": "start_live",           "style": "primary"},
+            {"type": "button",   "label": "Stop live",   "action": "stop_live"},
+            {"type": "dropdown", "id": "auto_track",    "label": "Auto-track first ID",   "options": ["no", "yes"], "default": "no"},
+            {"type": "input",    "id": "target_id",     "label": "Track ID",              "default": ""},
+            {"type": "input",    "id": "lost_timeout",  "label": "Lost timeout (s)",      "default": "4"},
+            {"type": "button",   "label": "Track",       "action": "select_target",        "style": "primary"},
+            {"type": "button",   "label": "Stop track",  "action": "stop_track"},
         ],
         "outputs": [
             {"type": "text",  "id": "status",      "label": "Status"},
@@ -92,7 +93,8 @@ def start_live(ctx, params):
 
         _worker = threading.Thread(
             target=_loop,
-            args=(ctx, picam, model_path, confidence, lost_timeout),
+            args=(ctx, picam, model_path, confidence, lost_timeout,
+                  str(params.get("auto_track", "no")) == "yes"),
             daemon=True,
         )
         _worker.start()
@@ -167,7 +169,7 @@ def on_unload(ctx):
         worker.join(timeout=3.0)
 
 
-def _loop(ctx, picam, model_path, confidence, lost_timeout):
+def _loop(ctx, picam, model_path, confidence, lost_timeout, auto_track=False):
     global _worker, _selected_id, _last_seen, _tracking
 
     try:
@@ -219,6 +221,15 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
             with _lock:
                 target_id = _selected_id
                 tracking  = _tracking
+
+            # auto-track : prend le premier ID detecte si pas de cible
+            if auto_track and dets and target_id is None:
+                with _lock:
+                    _selected_id = dets[0]["id"]
+                    _last_seen   = now
+                    _tracking    = True
+                    target_id    = _selected_id
+                    tracking     = True
 
             selected = next((d for d in dets if d["id"] == target_id), None) \
                        if target_id is not None else None
