@@ -7,5 +7,14 @@
     "author": "Hugo Le Guenno",
     "folder": "tempo-bed",
     "main": "tempo-bed.py"
+  },
+  {
+    "id": "yolo-tracker",
+    "name": "YOLO Tracker",
+    "version": "1.1.0",
+    "description": "Live YOLO/ByteTrack object tracking — select target, stage follows.",
+    "author": "Hugo Le Guenno",
+    "folder": "yolo-tracker",
+    "main": "yolo-tracker.py"
   }
 ]
