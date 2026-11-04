@@ -342,7 +342,7 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                     "ID %d %s %.0f%%" % (d["id"], d["cls"], d["conf"] * 100) for d in dets
                 ) if dets else "No detections"
                 ctx.update_output("ids", ids_text)
-                ctx.update_image("live_image", annotated)  # result.plot() returns RGB when input is RGB
+                ctx.update_image("live_image", cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
                 last_ui = now
 
             _stop_event.wait(0.005)
