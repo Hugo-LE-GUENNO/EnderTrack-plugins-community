@@ -26,7 +26,7 @@ DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 SECTIONS = {
     "navigation": {
         "inputs": [
-            {"type": "folder",   "id": "model_dir",    "label": "Models folder"},
+            {"type": "input",    "id": "model_dir", "label": "Models folder", "default": MODELS_DIR},
             {"type": "button",   "label": "List models", "action": "list_models"},
             {"type": "dropdown", "id": "model_choice", "label": "Model",
              "options": [DEFAULT_MODEL] + [f for f in _list_pt(MODELS_DIR) if f != DEFAULT_MODEL],
