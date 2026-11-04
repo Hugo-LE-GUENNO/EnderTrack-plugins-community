@@ -320,8 +320,10 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                 with _lock:
                     last_seen = _last_seen
                 elapsed   = now - last_seen if last_seen else 0.0
-                remaining = max(0.0, lost_timeout - elapsed)
-                if elapsed >= lost_timeout:
+                auto_now  = str(_last_params.get("auto_track", "no")) == "yes"
+                timeout   = 0.0 if auto_now else lost_timeout
+                remaining = max(0.0, timeout - elapsed)
+                if elapsed >= timeout:
                     with _lock:
                         if _selected_id == target_id:
                             _selected_id = None
