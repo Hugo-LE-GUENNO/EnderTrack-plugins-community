@@ -228,17 +228,18 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
 
             frame_raw = np.asarray(frame_raw)
             if frame_raw.ndim == 2:
-                bgr = cv2.cvtColor(frame_raw, cv2.COLOR_GRAY2BGR)
+                rgb = cv2.cvtColor(frame_raw, cv2.COLOR_GRAY2RGB)
             elif frame_raw.shape[2] == 4:
-                bgr = cv2.cvtColor(frame_raw, cv2.COLOR_RGBA2BGR)
+                rgb = cv2.cvtColor(frame_raw, cv2.COLOR_RGBA2RGB)
             else:
-                bgr = frame_raw[:, :, :3]  # picamera returns RGB, keep as-is for YOLO
+                rgb = frame_raw[:, :, :3]  # picamera returns RGB
 
-            results   = model.track(source=bgr, persist=True, tracker="bytetrack.yaml",
+            results   = model.track(source=rgb, persist=True, tracker="bytetrack.yaml",
                                     conf=confidence, iou=0.7, verbose=False)
             result    = results[0]
-            annotated = result.plot()  # BGR
-            h, w      = bgr.shape[:2]
+            annotated = result.plot()  # plot() returns BGR regardless of input
+            annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+            h, w      = rgb.shape[:2]
 
             dets = []
             if result.boxes is not None and result.boxes.id is not None:
@@ -342,7 +343,7 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                     "ID %d %s %.0f%%" % (d["id"], d["cls"], d["conf"] * 100) for d in dets
                 ) if dets else "No detections"
                 ctx.update_output("ids", ids_text)
-                ctx.update_image("live_image", cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
+                ctx.update_image("live_image", annotated)
                 last_ui = now
 
             _stop_event.wait(0.005)
