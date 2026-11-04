@@ -81,6 +81,8 @@ def list_models(ctx, params):
     folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
     pts = _list_pt(folder)
     ctx.update_output("models", "%s : %s" % (folder, ", ".join(pts)) if pts else "No .pt in %s" % folder)
+    if pts:
+        ctx.update_input("model_choice", pts)
     return {"success": True}
 
 
