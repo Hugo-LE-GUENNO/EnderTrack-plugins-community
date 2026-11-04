@@ -17,7 +17,7 @@ DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 SECTIONS = {
     "navigation": {
         "inputs": [
-            {"type": "input", "id": "model_path", "label": "Model path (.pt)", "default": os.path.join(MODELS_DIR, "model.pt")},
+            {"type": "input", "id": "model_path", "label": "Model path (.pt)", "default": os.path.join(MODELS_DIR, "yolo11n.pt")},
             {"type": "input",    "id": "confidence",   "label": "Min confidence",        "default": "0.25"},
             {"type": "button",   "label": "Start live",  "action": "start_live",           "style": "primary"},
             {"type": "button",   "label": "Stop live",   "action": "stop_live"},
@@ -45,9 +45,10 @@ _last_seen   = 0.0
 _tracking    = False
 
 MOVE_THRESHOLD_PX = 15
-MAX_FEEDRATE      = 3000
-MIN_FEEDRATE      = 300
-DAMPING           = 0.4  # fraction du delta appliquee par frame (0.1-1.0)
+MAX_FEEDRATE      = 6000
+MIN_FEEDRATE      = 1000
+DAMPING           = 0.85
+MOVE_COOLDOWN     = 0.0
 
 
 def _safe_float(v, default):
@@ -180,7 +181,8 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout, auto_track=False):
         model = YOLO(model_path)
         ctx.update_output("status", "Live — waiting for target.")
         ctx.update_output("ids",    "No detections yet.")
-        last_ui = 0.0
+        last_ui   = 0.0
+        last_move = 0.0
 
         while not _stop_event.is_set():
             frame_raw = picam.capture_array("main")
@@ -252,7 +254,7 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout, auto_track=False):
 
                 if tracking:
                     err_px = (ex ** 2 + ey ** 2) ** 0.5
-                    if err_px > MOVE_THRESHOLD_PX:
+                    if err_px > MOVE_THRESHOLD_PX and (now - last_move) >= MOVE_COOLDOWN:
                         try:
                             dx_mm, dy_mm = ctx.image_to_stage(ex, ey)
                             stage = ctx.stage
@@ -262,6 +264,7 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout, auto_track=False):
                                 stage.move_relative(dx=dx_mm * DAMPING, dy=dy_mm * DAMPING,
                                                     dz=0.0, feedrate=feed)
                                 stage.finish_moves()
+                                last_move = now
                                 pos = stage.position
                                 ctx.update_output(
                                     "coordinates",
