@@ -17,6 +17,6 @@
     "author": "Hugo Le Guenno",
     "folder": "yolo-tracker",
     "main": "yolo-tracker.py",
-    "files": ["yolo-tracker.py", "plugin.json", "models/.gitkeep"]
+    "files": ["yolo-tracker.py", "models/.gitkeep"]
   }
 ]
