@@ -232,12 +232,12 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
             elif frame_raw.shape[2] == 4:
                 bgr = cv2.cvtColor(frame_raw, cv2.COLOR_RGBA2BGR)
             else:
-                bgr = cv2.cvtColor(frame_raw[:, :, :3], cv2.COLOR_RGB2BGR)
+                bgr = frame_raw[:, :, :3]  # picamera returns RGB, keep as-is for YOLO
 
             results   = model.track(source=bgr, persist=True, tracker="bytetrack.yaml",
                                     conf=confidence, iou=0.7, verbose=False)
             result    = results[0]
-            annotated = result.plot()
+            annotated = result.plot()  # BGR
             h, w      = bgr.shape[:2]
 
             dets = []
@@ -342,7 +342,7 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                     "ID %d %s %.0f%%" % (d["id"], d["cls"], d["conf"] * 100) for d in dets
                 ) if dets else "No detections"
                 ctx.update_output("ids", ids_text)
-                ctx.update_image("live_image", cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
+                ctx.update_image("live_image", annotated)  # result.plot() returns RGB when input is RGB
                 last_ui = now
 
             _stop_event.wait(0.005)
