@@ -8,27 +8,41 @@ try:
 except NameError:
     _HERE = "."
 
-MODELS_DIR = os.path.join(_HERE, "models")
+MODELS_DIR    = os.path.join(_HERE, "models")
+DEFAULT_MODEL = "yolo11n.pt"
 
-NAME = "YOLO Tracker"
-VERSION = "1.1.0"
+
+def _list_pt(folder):
+    try:
+        return sorted(f for f in os.listdir(folder) if f.lower().endswith(".pt"))
+    except Exception:
+        return []
+
+
+NAME        = "YOLO Tracker"
+VERSION     = "1.2.0"
 DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 
 SECTIONS = {
     "navigation": {
         "inputs": [
-            {"type": "input", "id": "model_path", "label": "Model path (.pt)", "default": os.path.join(MODELS_DIR, "yolo11n.pt")},
-            {"type": "input",    "id": "confidence",   "label": "Min confidence",        "default": "0.25"},
-            {"type": "button",   "label": "Start live",  "action": "start_live",           "style": "primary"},
-            {"type": "button",   "label": "Stop live",   "action": "stop_live"},
-            {"type": "dropdown", "id": "auto_track",    "label": "Auto-track first ID",   "options": ["no", "yes"], "default": "no"},
-            {"type": "input",    "id": "target_id",     "label": "Track ID",              "default": ""},
-            {"type": "input",    "id": "lost_timeout",  "label": "Lost timeout (s)",      "default": "4"},
-            {"type": "button",   "label": "Track",       "action": "select_target",        "style": "primary"},
-            {"type": "button",   "label": "Stop track",  "action": "stop_track"},
+            {"type": "folder",   "id": "model_dir",    "label": "Models folder"},
+            {"type": "button",   "label": "List models", "action": "list_models"},
+            {"type": "dropdown", "id": "model_choice", "label": "Model",
+             "options": [DEFAULT_MODEL] + [f for f in _list_pt(MODELS_DIR) if f != DEFAULT_MODEL],
+             "default": DEFAULT_MODEL},
+            {"type": "input",   "id": "confidence",   "label": "Min confidence",      "default": "0.25"},
+            {"type": "button",  "label": "Start live", "action": "start_live",         "style": "primary"},
+            {"type": "button",  "label": "Stop live",  "action": "stop_live"},
+            {"type": "dropdown", "id": "auto_track",  "label": "Auto-track first ID", "options": ["no", "yes"], "default": "no"},
+            {"type": "input",   "id": "target_id",    "label": "Track ID",            "default": ""},
+            {"type": "input",   "id": "lost_timeout", "label": "Lost timeout (s)",    "default": "4"},
+            {"type": "button",  "label": "Track",      "action": "select_target",      "style": "primary"},
+            {"type": "button",  "label": "Stop track", "action": "stop_track"},
         ],
         "outputs": [
             {"type": "text",  "id": "status",      "label": "Status"},
+            {"type": "text",  "id": "models",      "label": "Models found"},
             {"type": "text",  "id": "ids",         "label": "Detected IDs"},
             {"type": "text",  "id": "target",      "label": "Target"},
             {"type": "text",  "id": "coordinates", "label": "Coordinates"},
@@ -43,6 +57,7 @@ _worker      = None
 _selected_id = None
 _last_seen   = 0.0
 _tracking    = False
+_auto_track  = False   # lu dynamiquement par le worker
 
 MOVE_THRESHOLD_PX = 15
 MAX_FEEDRATE      = 6000
@@ -56,8 +71,21 @@ def _safe_float(v, default):
     except: return default
 
 
+def _resolve_model(params):
+    folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
+    choice = str(params.get("model_choice") or DEFAULT_MODEL).strip()
+    return os.path.join(folder, choice)
+
+
+def list_models(ctx, params):
+    folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
+    pts = _list_pt(folder)
+    ctx.update_output("models", "%s : %s" % (folder, ", ".join(pts)) if pts else "No .pt in %s" % folder)
+    return {"success": True}
+
+
 def start_live(ctx, params):
-    global _worker, _selected_id, _last_seen, _tracking
+    global _worker, _selected_id, _last_seen, _tracking, _auto_track
 
     with _lock:
         if _worker is not None and _worker.is_alive():
@@ -79,23 +107,23 @@ def start_live(ctx, params):
             ctx.update_output("status", "Camera not started.")
             return {"success": False}
 
-        model_path = str(params.get("model_path") or "").strip()
-        if not model_path:
-            ctx.update_output("status", "No model selected.")
+        model_path = _resolve_model(params)
+        if not os.path.isfile(model_path):
+            ctx.update_output("status", "Model not found: %s" % model_path)
             return {"success": False}
 
-        confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"), 0.30)))
+        confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"), 0.25)))
         lost_timeout = max(0.5,  min(60.0, _safe_float(params.get("lost_timeout"), 4.0)))
 
         _stop_event.clear()
         _selected_id = None
         _last_seen   = 0.0
         _tracking    = False
+        _auto_track  = str(params.get("auto_track", "no")) == "yes"
 
         _worker = threading.Thread(
             target=_loop,
-            args=(ctx, picam, model_path, confidence, lost_timeout,
-                  str(params.get("auto_track", "no")) == "yes"),
+            args=(ctx, picam, model_path, confidence, lost_timeout),
             daemon=True,
         )
         _worker.start()
@@ -170,8 +198,8 @@ def on_unload(ctx):
         worker.join(timeout=3.0)
 
 
-def _loop(ctx, picam, model_path, confidence, lost_timeout, auto_track=False):
-    global _worker, _selected_id, _last_seen, _tracking
+def _loop(ctx, picam, model_path, confidence, lost_timeout):
+    global _worker, _selected_id, _last_seen, _tracking, _auto_track
 
     try:
         import cv2
@@ -221,10 +249,10 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout, auto_track=False):
 
             now = time.monotonic()
             with _lock:
-                target_id = _selected_id
-                tracking  = _tracking
+                target_id  = _selected_id
+                tracking   = _tracking
+                auto_track = _auto_track
 
-            # auto-track : prend le premier ID detecte si pas de cible
             if auto_track and dets and target_id is None:
                 with _lock:
                     _selected_id = dets[0]["id"]
