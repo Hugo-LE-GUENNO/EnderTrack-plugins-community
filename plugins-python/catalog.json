@@ -6,15 +6,17 @@
     "description": "Heated bed temperature controller",
     "author": "Hugo Le Guenno",
     "folder": "tempo-bed",
-    "main": "tempo-bed.py"
+    "main": "tempo-bed.py",
+    "files": ["tempo-bed.py"]
   },
   {
     "id": "yolo-tracker",
     "name": "YOLO Tracker",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "Live YOLO/ByteTrack object tracking — select target, stage follows.",
     "author": "Hugo Le Guenno",
     "folder": "yolo-tracker",
-    "main": "yolo-tracker.py"
+    "main": "yolo-tracker.py",
+    "files": ["yolo-tracker.py", "plugin.json", "models/.gitkeep"]
   }
 ]
