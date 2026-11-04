@@ -66,6 +66,7 @@ MAX_FEEDRATE      = 6000
 MIN_FEEDRATE      = 1000
 DAMPING           = 0.85
 MOVE_COOLDOWN     = 0.0
+MOVE_FREEZE       = 0.3
 
 
 def _safe_float(v, default):
@@ -219,8 +220,9 @@ def _loop(ctx, picam, model_path, confidence, iou, lost_timeout):
         model = YOLO(model_path)
         ctx.update_output("status", "Live — waiting for target.")
         ctx.update_output("ids",    "No detections yet.")
-        last_ui   = 0.0
-        last_move = 0.0
+        last_ui        = 0.0
+        last_move      = 0.0
+        last_annotated = None
 
         while not _stop_event.is_set():
             frame_raw = picam.capture_array("main")
@@ -239,8 +241,9 @@ def _loop(ctx, picam, model_path, confidence, iou, lost_timeout):
             results   = model.track(source=rgb, persist=True, tracker="bytetrack.yaml",
                                     conf=confidence, iou=iou, verbose=False)
             result    = results[0]
-            annotated = result.plot()  # plot() returns BGR regardless of input
+            annotated = result.plot()
             annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+            last_annotated = annotated
             h, w      = rgb.shape[:2]
 
             dets = []
@@ -259,6 +262,14 @@ def _loop(ctx, picam, model_path, confidence, iou, lost_timeout):
                     })
 
             now = time.monotonic()
+
+            if last_annotated is not None and (now - last_move) < MOVE_FREEZE:
+                if now - last_ui >= 0.20:
+                    ctx.update_image("live_image", last_annotated)
+                    last_ui = now
+                _stop_event.wait(0.005)
+                continue
+
             with _lock:
                 target_id  = _selected_id
                 tracking   = _tracking
