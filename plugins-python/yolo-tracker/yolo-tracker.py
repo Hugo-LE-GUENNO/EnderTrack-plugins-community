@@ -26,7 +26,6 @@ DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 SECTIONS = {
     "navigation": {
         "inputs": [
-            {"type": "folder",   "id": "model_dir",    "label": "Models folder"},
             {"type": "button",   "label": "List models", "action": "list_models"},
             {"type": "dropdown", "id": "model_choice", "label": "Model",
              "options": [DEFAULT_MODEL] + [f for f in _list_pt(MODELS_DIR) if f != DEFAULT_MODEL],
@@ -72,13 +71,13 @@ def _safe_float(v, default):
 
 
 def _resolve_model(params):
-    folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
+    folder = MODELS_DIR
     choice = str(params.get("model_choice") or DEFAULT_MODEL).strip()
     return os.path.join(folder, choice)
 
 
 def list_models(ctx, params):
-    folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
+    folder = MODELS_DIR
     pts = _list_pt(folder)
     ctx.update_output("models", "%s : %s" % (folder, ", ".join(pts)) if pts else "No .pt in %s" % folder)
     return {"success": True}
