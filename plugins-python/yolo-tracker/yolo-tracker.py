@@ -57,7 +57,8 @@ _worker      = None
 _selected_id = None
 _last_seen   = 0.0
 _tracking    = False
-_auto_track  = False   # lu dynamiquement par le worker
+_auto_track  = False
+_last_params = {}
 
 MOVE_THRESHOLD_PX = 15
 MAX_FEEDRATE      = 6000
@@ -87,7 +88,7 @@ def list_models(ctx, params):
 
 
 def start_live(ctx, params):
-    global _worker, _selected_id, _last_seen, _tracking, _auto_track
+    global _worker, _selected_id, _last_seen, _tracking, _auto_track, _last_params
 
     with _lock:
         if _worker is not None and _worker.is_alive():
@@ -122,6 +123,7 @@ def start_live(ctx, params):
         _last_seen   = 0.0
         _tracking    = False
         _auto_track  = str(params.get("auto_track", "no")) == "yes"
+        _last_params = dict(params)
 
         _worker = threading.Thread(
             target=_loop,
@@ -157,10 +159,14 @@ def stop_live(ctx, params=None):
 
 
 def select_target(ctx, params):
-    global _selected_id, _last_seen, _tracking
+    global _selected_id, _last_seen, _tracking, _last_params
 
+    _last_params = dict(params)
     raw = params.get("target_id")
     if not raw or str(raw).strip() == "":
+        if str(params.get("auto_track", "no")) == "yes":
+            ctx.update_output("status", "Auto-track active — will pick first detected ID.")
+            return {"success": True}
         ctx.update_output("status", "Enter a ByteTrack ID first.")
         return {"success": False}
 
@@ -201,7 +207,7 @@ def on_unload(ctx):
 
 
 def _loop(ctx, picam, model_path, confidence, lost_timeout):
-    global _worker, _selected_id, _last_seen, _tracking, _auto_track
+    global _worker, _selected_id, _last_seen, _tracking, _auto_track, _last_params
 
     try:
         import cv2
@@ -253,7 +259,7 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
             with _lock:
                 target_id  = _selected_id
                 tracking   = _tracking
-                auto_track = _auto_track
+                auto_track = str(_last_params.get("auto_track", "no")) == "yes"
 
             if auto_track and dets and target_id is None:
                 with _lock:
