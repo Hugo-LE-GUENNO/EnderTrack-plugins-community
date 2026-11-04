@@ -32,6 +32,9 @@ SECTIONS = {
              "options": [DEFAULT_MODEL] + [f for f in _list_pt(MODELS_DIR) if f != DEFAULT_MODEL],
              "default": DEFAULT_MODEL},
             {"type": "input",   "id": "confidence",   "label": "Min confidence",      "default": "0.25"},
+            {"type": "input",   "id": "iou",           "label": "IoU threshold",       "default": "0.5"},
+            {"type": "input",   "id": "track_buffer",  "label": "Track buffer (frames)","default": "60"},
+            {"type": "input",   "id": "match_thresh",  "label": "Match threshold",     "default": "0.8"},
             {"type": "button",  "label": "Start live", "action": "start_live",         "style": "primary"},
             {"type": "button",  "label": "Stop live",  "action": "stop_live"},
             {"type": "dropdown", "id": "auto_track",  "label": "Auto-track first ID", "options": ["no", "yes"], "default": "no"},
@@ -115,7 +118,10 @@ def start_live(ctx, params):
             ctx.update_output("status", "Model not found: %s" % model_path)
             return {"success": False}
 
-        confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"), 0.25)))
+        confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"),  0.25)))
+        iou          = max(0.1,  min(0.99, _safe_float(params.get("iou"),          0.5)))
+        track_buffer = max(1,    int(_safe_float(params.get("track_buffer"),       60)))
+        match_thresh = max(0.1,  min(0.99, _safe_float(params.get("match_thresh"), 0.8)))
         lost_timeout = max(0.5,  min(60.0, _safe_float(params.get("lost_timeout"), 4.0)))
 
         _stop_event.clear()
@@ -127,7 +133,7 @@ def start_live(ctx, params):
 
         _worker = threading.Thread(
             target=_loop,
-            args=(ctx, picam, model_path, confidence, lost_timeout),
+            args=(ctx, picam, model_path, confidence, iou, track_buffer, match_thresh, lost_timeout),
             daemon=True,
         )
         _worker.start()
@@ -206,7 +212,7 @@ def on_unload(ctx):
         worker.join(timeout=3.0)
 
 
-def _loop(ctx, picam, model_path, confidence, lost_timeout):
+def _loop(ctx, picam, model_path, confidence, iou, track_buffer, match_thresh, lost_timeout):
     global _worker, _selected_id, _last_seen, _tracking, _auto_track, _last_params
 
     try:
@@ -235,7 +241,9 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                 rgb = frame_raw[:, :, :3]  # picamera returns RGB
 
             results   = model.track(source=rgb, persist=True, tracker="bytetrack.yaml",
-                                    conf=confidence, iou=0.7, verbose=False)
+                                    conf=confidence, iou=iou,
+                                    track_buffer=track_buffer, match_thresh=match_thresh,
+                                    verbose=False)
             result    = results[0]
             annotated = result.plot()  # plot() returns BGR regardless of input
             annotated = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
