@@ -20,7 +20,7 @@ def _list_pt(folder):
 
 
 NAME        = "YOLO Tracker"
-VERSION     = "1.4.2"
+VERSION     = "1.4.3"
 DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 
 SECTIONS = {
@@ -282,7 +282,7 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
             model = _model
 
         ctx.update_output("status", "Live — waiting for target.")
-        ctx.update_output("ids",    "No detections yet.")
+        ctx.reset_graph("ids")
         last_ui        = 0.0
         last_move      = 0.0
         last_annotated = None
