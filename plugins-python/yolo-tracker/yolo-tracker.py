@@ -1,22 +1,56 @@
+import os
 import threading
 import time
 import traceback
 
-NAME = "YOLO Tracker"
-VERSION = "1.1.0"
+try:
+    _HERE = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _HERE = "."
+
+MODELS_DIR    = os.path.join(_HERE, "models")
+DEFAULT_MODEL = "yolo11n.pt"
+
+
+def _list_pt(folder):
+    try:
+        return sorted(f for f in os.listdir(folder) if f.lower().endswith(".pt"))
+    except Exception:
+        return []
+
+
+NAME        = "YOLO Tracker"
+VERSION     = "1.3.0"
 DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 
 SECTIONS = {
+    "settings": {
+        "inputs": [
+            {"type": "input",    "id": "model_dir",    "label": "Models folder", "default": MODELS_DIR},
+            {"type": "button",   "label": "List models", "action": "list_models"},
+            {"type": "dropdown", "id": "model_choice", "label": "Model",
+             "options": [DEFAULT_MODEL] + [f for f in _list_pt(MODELS_DIR) if f != DEFAULT_MODEL],
+             "default": DEFAULT_MODEL},
+            {"type": "input",   "id": "confidence", "label": "Min confidence", "default": "0.25"},
+            {"type": "input",   "id": "iou",         "label": "IoU threshold",  "default": "0.5"},
+            {"type": "button",  "label": "Load model", "action": "load_model", "style": "primary"},
+        ],
+        "outputs": [
+            {"type": "text", "id": "model_status", "label": "Model"},
+        ],
+    },
     "navigation": {
         "inputs": [
-            {"type": "file",   "id": "model_path",   "label": "Model (.pt)",      "accept": ".pt"},
-            {"type": "input",  "id": "confidence",   "label": "Min confidence",   "default": "0.30"},
-            {"type": "button", "label": "Start live", "action": "start_live",     "style": "primary"},
-            {"type": "button", "label": "Stop live",  "action": "stop_live"},
-            {"type": "input",  "id": "target_id",    "label": "Track ID",         "default": ""},
-            {"type": "input",  "id": "lost_timeout", "label": "Lost timeout (s)", "default": "4"},
-            {"type": "button", "label": "Track",      "action": "select_target",  "style": "primary"},
-            {"type": "button", "label": "Stop track", "action": "stop_track"},
+            {"type": "button",   "label": "Start live", "action": "start_live", "style": "primary"},
+            {"type": "button",   "label": "Stop live",  "action": "stop_live"},
+            {"type": "dropdown", "id": "track_mode",   "label": "Track mode",
+             "options": ["id", "class"], "default": "id"},
+            {"type": "dropdown", "id": "track_class",  "label": "Track class", "options": ["—"], "default": "—"},
+            {"type": "input",    "id": "target_id",    "label": "Track ID",            "default": ""},
+            {"type": "dropdown", "id": "auto_track",   "label": "Auto-track first ID", "options": ["no", "yes"], "default": "no"},
+            {"type": "input",    "id": "lost_timeout", "label": "Lost timeout (s)",    "default": "4"},
+            {"type": "button",   "label": "Track",      "action": "select_target", "style": "primary"},
+            {"type": "button",   "label": "Stop track", "action": "stop_track"},
         ],
         "outputs": [
             {"type": "text",  "id": "status",      "label": "Status"},
@@ -25,17 +59,23 @@ SECTIONS = {
             {"type": "text",  "id": "coordinates", "label": "Coordinates"},
             {"type": "image", "id": "live_image",  "label": "Live"},
         ],
-    }
+    },
 }
 
 _lock        = threading.RLock()
 _stop_event  = threading.Event()
 _worker      = None
+_model       = None
+_model_path  = None
 _selected_id = None
 _last_seen   = 0.0
 _tracking    = False
+_last_params = {}
 
 MOVE_THRESHOLD_PX = 15
+DAMPING           = 0.85
+MOVE_COOLDOWN     = 0.0
+MOVE_FREEZE       = 0.3
 
 
 def _safe_float(v, default):
@@ -43,13 +83,56 @@ def _safe_float(v, default):
     except: return default
 
 
+def _resolve_model(params):
+    folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
+    choice = str(params.get("model_choice") or DEFAULT_MODEL).strip()
+    return os.path.join(folder, choice)
+
+
+def list_models(ctx, params):
+    folder = str(params.get("model_dir") or "").strip() or MODELS_DIR
+    pts = _list_pt(folder)
+    if pts:
+        ctx.update_input("model_choice", pts)
+    ctx.update_output("model_status", "%d model(s) found" % len(pts) if pts else "No .pt in %s" % folder)
+    return {"success": True}
+
+
+def load_model(ctx, params):
+    global _model, _model_path
+    from ultralytics import YOLO
+
+    path = _resolve_model(params)
+    if not os.path.isfile(path):
+        ctx.update_output("model_status", "Not found: %s" % path)
+        return {"success": False}
+
+    ctx.update_output("model_status", "Loading...")
+    try:
+        m = YOLO(path)
+        with _lock:
+            _model      = m
+            _model_path = path
+        classes = sorted(m.names.values())
+        ctx.update_input("track_class", classes)
+        ctx.update_output("model_status", "Loaded: %s — %d classes" % (os.path.basename(path), len(classes)))
+    except Exception as e:
+        ctx.update_output("model_status", "Error: %s" % e)
+        return {"success": False}
+    return {"success": True}
+
+
 def start_live(ctx, params):
-    global _worker, _selected_id, _last_seen, _tracking
+    global _worker, _selected_id, _last_seen, _tracking, _last_params
 
     with _lock:
         if _worker is not None and _worker.is_alive():
             ctx.update_output("status", "Live already running.")
             return {"success": True}
+
+        if _model is None:
+            ctx.update_output("status", "Load a model first.")
+            return {"success": False}
 
         cam = ctx.cam
         if cam is None:
@@ -66,27 +149,24 @@ def start_live(ctx, params):
             ctx.update_output("status", "Camera not started.")
             return {"success": False}
 
-        model_path = str(params.get("model_path") or "").strip()
-        if not model_path:
-            ctx.update_output("status", "No model selected.")
-            return {"success": False}
-
-        confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"), 0.30)))
+        confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"),  0.25)))
+        iou          = max(0.1,  min(0.99, _safe_float(params.get("iou"),          0.5)))
         lost_timeout = max(0.5,  min(60.0, _safe_float(params.get("lost_timeout"), 4.0)))
 
         _stop_event.clear()
         _selected_id = None
         _last_seen   = 0.0
         _tracking    = False
+        _last_params = dict(params)
 
         _worker = threading.Thread(
             target=_loop,
-            args=(ctx, picam, model_path, confidence, lost_timeout),
+            args=(ctx, picam, confidence, iou, lost_timeout),
             daemon=True,
         )
         _worker.start()
 
-    ctx.update_output("status", "Loading model...")
+    ctx.update_output("status", "Live started.")
     return {"success": True}
 
 
@@ -113,10 +193,25 @@ def stop_live(ctx, params=None):
 
 
 def select_target(ctx, params):
-    global _selected_id, _last_seen, _tracking
+    global _selected_id, _last_seen, _tracking, _last_params
+
+    _last_params = dict(params)
+    track_mode = str(params.get("track_mode", "id"))
+
+    if track_mode == "class":
+        with _lock:
+            _selected_id = None
+            _tracking    = True
+        cls = str(params.get("track_class", "")).strip()
+        ctx.update_output("status", "Tracking class: %s" % cls)
+        ctx.update_output("target", "Class: %s" % cls)
+        return {"success": True}
 
     raw = params.get("target_id")
     if not raw or str(raw).strip() == "":
+        if str(params.get("auto_track", "no")) == "yes":
+            ctx.update_output("status", "Auto-track active — will pick first detected ID.")
+            return {"success": True}
         ctx.update_output("status", "Enter a ByteTrack ID first.")
         return {"success": False}
 
@@ -156,18 +251,21 @@ def on_unload(ctx):
         worker.join(timeout=3.0)
 
 
-def _loop(ctx, picam, model_path, confidence, lost_timeout):
-    global _worker, _selected_id, _last_seen, _tracking
+def _loop(ctx, picam, confidence, iou, lost_timeout):
+    global _worker, _selected_id, _last_seen, _tracking, _last_params
 
     try:
         import cv2
         import numpy as np
-        from ultralytics import YOLO
 
-        model = YOLO(model_path)
+        with _lock:
+            model = _model
+
         ctx.update_output("status", "Live — waiting for target.")
         ctx.update_output("ids",    "No detections yet.")
-        last_ui = 0.0
+        last_ui        = 0.0
+        last_move      = 0.0
+        last_annotated = None
 
         while not _stop_event.is_set():
             frame_raw = picam.capture_array("main")
@@ -177,17 +275,18 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
 
             frame_raw = np.asarray(frame_raw)
             if frame_raw.ndim == 2:
-                bgr = cv2.cvtColor(frame_raw, cv2.COLOR_GRAY2BGR)
+                rgb = cv2.cvtColor(frame_raw, cv2.COLOR_GRAY2RGB)
             elif frame_raw.shape[2] == 4:
-                bgr = cv2.cvtColor(frame_raw, cv2.COLOR_RGBA2BGR)
+                rgb = cv2.cvtColor(frame_raw, cv2.COLOR_RGBA2RGB)
             else:
-                bgr = cv2.cvtColor(frame_raw[:, :, :3], cv2.COLOR_RGB2BGR)
+                rgb = frame_raw[:, :, :3]
 
-            results   = model.track(source=bgr, persist=True, tracker="bytetrack.yaml",
-                                    conf=confidence, iou=0.7, verbose=False)
+            results   = model.track(source=rgb, persist=True, tracker="bytetrack.yaml",
+                                    conf=confidence, iou=iou, verbose=False)
             result    = results[0]
-            annotated = result.plot()
-            h, w      = bgr.shape[:2]
+            annotated = cv2.cvtColor(result.plot(), cv2.COLOR_BGR2RGB)
+            last_annotated = annotated
+            h, w      = rgb.shape[:2]
 
             dets = []
             if result.boxes is not None and result.boxes.id is not None:
@@ -198,39 +297,48 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                     result.boxes.cls.int().cpu().numpy(),
                 ):
                     dets.append({
-                        "id":  int(tid),
-                        "box": box.tolist(),
+                        "id":   int(tid),
+                        "box":  box.tolist(),
                         "conf": float(conf),
-                        "cls": result.names.get(int(cls), str(cls)),
+                        "cls":  result.names.get(int(cls), str(cls)),
                     })
 
             now = time.monotonic()
+
+            if last_annotated is not None and (now - last_move) < MOVE_FREEZE:
+                if now - last_ui >= 0.20:
+                    ctx.update_image("live_image", last_annotated)
+                    last_ui = now
+                _stop_event.wait(0.005)
+                continue
+
             with _lock:
-                target_id = _selected_id
-                tracking  = _tracking
+                target_id  = _selected_id
+                tracking   = _tracking
+                track_mode = str(_last_params.get("track_mode", "id"))
+                auto_track = str(_last_params.get("auto_track", "no")) == "yes"
+                track_cls  = str(_last_params.get("track_class", "")).strip()
 
-            selected = next((d for d in dets if d["id"] == target_id), None) \
-                       if target_id is not None else None
+            # --- mode class : toujours la meilleure conf de la classe choisie ---
+            if track_mode == "class" and tracking:
+                candidates = [d for d in dets if d["cls"] == track_cls]
+                selected   = max(candidates, key=lambda d: d["conf"]) if candidates else None
 
-            if selected is not None:
-                with _lock:
-                    _last_seen = now
+                if selected is not None:
+                    x1, y1, x2, y2 = selected["box"]
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                    ex = cx - w / 2.0
+                    ey = cy - h / 2.0
 
-                x1, y1, x2, y2 = selected["box"]
-                cx = (x1 + x2) / 2.0
-                cy = (y1 + y2) / 2.0
-                ex = cx - w / 2.0
-                ey = cy - h / 2.0
+                    cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
+                    cv2.drawMarker(annotated, (int(cx), int(cy)), (0, 255, 0), cv2.MARKER_CROSS, 18, 2)
+                    cv2.putText(annotated, "TRACKING %s %.0f%%" % (track_cls, selected["conf"] * 100),
+                                (max(8, int(x1)), max(25, int(y1) - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-                cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
-                cv2.drawMarker(annotated, (int(cx), int(cy)), (0, 255, 0), cv2.MARKER_CROSS, 18, 2)
-                cv2.putText(annotated, "TRACKING ID %d" % target_id,
-                            (max(8, int(x1)), max(25, int(y1) - 10)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-                if tracking:
                     err_px = (ex ** 2 + ey ** 2) ** 0.5
-                    if err_px > MOVE_THRESHOLD_PX:
+                    if err_px > MOVE_THRESHOLD_PX and (now - last_move) >= MOVE_COOLDOWN:
                         try:
                             dx_mm, dy_mm = ctx.image_to_stage(ex, ey)
                             stage = ctx.stage
@@ -240,47 +348,108 @@ def _loop(ctx, picam, model_path, confidence, lost_timeout):
                                 min_feed = max(100, max_feed // 10)
                                 feed = int(min_feed + (max_feed - min_feed) *
                                            min(err_px / (w / 2.0), 1.0))
-                                stage.move_relative(dx=dx_mm, dy=dy_mm, dz=0.0, feedrate=feed)
+                                stage.move_relative(dx=dx_mm * DAMPING, dy=dy_mm * DAMPING,
+                                                    dz=0.0, feedrate=feed)
+                                stage.finish_moves()
+                                last_move = now
                                 pos = stage.position
-                                ctx.update_output(
-                                    "coordinates",
-                                    "ID %d | err %.0f px | dX %+.3f mm dY %+.3f mm | X %.3f Y %.3f" % (
-                                        target_id, err_px, dx_mm, dy_mm,
-                                        float(pos["X"]), float(pos["Y"]))
-                                )
+                                ctx.update_output("coordinates",
+                                    "%s | err %.0f px | dX %+.3f mm dY %+.3f mm | X %.3f Y %.3f" % (
+                                        track_cls, err_px, dx_mm, dy_mm,
+                                        float(pos["X"]), float(pos["Y"])))
                         except Exception as e:
                             ctx.update_output("coordinates", "Move error: %s" % e)
                     else:
-                        ctx.update_output("coordinates",
-                                          "ID %d — centered (err %.0f px)" % (target_id, err_px))
+                        ctx.update_output("coordinates", "%s — centered (err %.0f px)" % (track_cls, err_px))
 
-                ctx.update_output("target", "ID %d — VISIBLE" % target_id)
-
-            elif target_id is not None:
-                with _lock:
-                    last_seen = _last_seen
-                elapsed   = now - last_seen if last_seen else 0.0
-                remaining = max(0.0, lost_timeout - elapsed)
-                if elapsed >= lost_timeout:
-                    with _lock:
-                        if _selected_id == target_id:
-                            _selected_id = None
-                            _tracking    = False
-                    ctx.update_output("target",      "ID %d — lost" % target_id)
-                    ctx.update_output("status",      "Target lost. Select a new ID.")
-                    ctx.update_output("coordinates", "—")
+                    ctx.update_output("target", "%s — VISIBLE (ID %d)" % (track_cls, selected["id"]))
                 else:
-                    ctx.update_output("target",
-                                      "ID %d — lost (%.1f s)" % (target_id, remaining))
-                    cv2.putText(annotated, "ID %d LOST %.1fs" % (target_id, remaining),
-                                (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
+                    ctx.update_output("target", "%s — not detected" % track_cls)
+
+            # --- mode id ---
+            else:
+                if auto_track and dets and target_id is None:
+                    with _lock:
+                        _selected_id = dets[0]["id"]
+                        _last_seen   = now
+                        _tracking    = True
+                        target_id    = _selected_id
+                        tracking     = True
+
+                selected = next((d for d in dets if d["id"] == target_id), None) \
+                           if target_id is not None else None
+
+                if selected is not None:
+                    with _lock:
+                        _last_seen = now
+
+                    x1, y1, x2, y2 = selected["box"]
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                    ex = cx - w / 2.0
+                    ey = cy - h / 2.0
+
+                    cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
+                    cv2.drawMarker(annotated, (int(cx), int(cy)), (0, 255, 0), cv2.MARKER_CROSS, 18, 2)
+                    cv2.putText(annotated, "TRACKING ID %d" % target_id,
+                                (max(8, int(x1)), max(25, int(y1) - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                    if tracking:
+                        err_px = (ex ** 2 + ey ** 2) ** 0.5
+                        if err_px > MOVE_THRESHOLD_PX and (now - last_move) >= MOVE_COOLDOWN:
+                            try:
+                                dx_mm, dy_mm = ctx.image_to_stage(ex, ey)
+                                stage = ctx.stage
+                                if stage is not None:
+                                    speeds = getattr(stage, 'speeds', {})
+                                    max_feed = int(speeds.get('xy_mms', 50) * 60)
+                                    min_feed = max(100, max_feed // 10)
+                                    feed = int(min_feed + (max_feed - min_feed) *
+                                               min(err_px / (w / 2.0), 1.0))
+                                    stage.move_relative(dx=dx_mm * DAMPING, dy=dy_mm * DAMPING,
+                                                        dz=0.0, feedrate=feed)
+                                    stage.finish_moves()
+                                    last_move = now
+                                    pos = stage.position
+                                    ctx.update_output("coordinates",
+                                        "ID %d | err %.0f px | dX %+.3f mm dY %+.3f mm | X %.3f Y %.3f" % (
+                                            target_id, err_px, dx_mm, dy_mm,
+                                            float(pos["X"]), float(pos["Y"])))
+                            except Exception as e:
+                                ctx.update_output("coordinates", "Move error: %s" % e)
+                        else:
+                            ctx.update_output("coordinates",
+                                              "ID %d — centered (err %.0f px)" % (target_id, err_px))
+
+                    ctx.update_output("target", "ID %d — VISIBLE" % target_id)
+
+                elif target_id is not None:
+                    with _lock:
+                        last_seen = _last_seen
+                    elapsed   = now - last_seen if last_seen else 0.0
+                    auto_now  = str(_last_params.get("auto_track", "no")) == "yes"
+                    timeout   = 0.0 if auto_now else lost_timeout
+                    remaining = max(0.0, timeout - elapsed)
+                    if elapsed >= timeout:
+                        with _lock:
+                            if _selected_id == target_id:
+                                _selected_id = None
+                                _tracking    = False
+                        ctx.update_output("target",      "ID %d — lost" % target_id)
+                        ctx.update_output("status",      "Target lost. Select a new ID.")
+                        ctx.update_output("coordinates", "—")
+                    else:
+                        ctx.update_output("target", "ID %d — lost (%.1f s)" % (target_id, remaining))
+                        cv2.putText(annotated, "ID %d LOST %.1fs" % (target_id, remaining),
+                                    (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
 
             if now - last_ui >= 0.20:
                 ids_text = "   ".join(
                     "ID %d %s %.0f%%" % (d["id"], d["cls"], d["conf"] * 100) for d in dets
                 ) if dets else "No detections"
                 ctx.update_output("ids", ids_text)
-                ctx.update_image("live_image", cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
+                ctx.update_image("live_image", annotated)
                 last_ui = now
 
             _stop_event.wait(0.005)
