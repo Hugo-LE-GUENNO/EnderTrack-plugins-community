@@ -20,7 +20,7 @@ def _list_pt(folder):
 
 
 NAME        = "YOLO Tracker"
-VERSION     = "1.3.0"
+VERSION     = "1.4.0"
 DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 
 SECTIONS = {
@@ -31,9 +31,15 @@ SECTIONS = {
             {"type": "dropdown", "id": "model_choice", "label": "Model",
              "options": [DEFAULT_MODEL] + [f for f in _list_pt(MODELS_DIR) if f != DEFAULT_MODEL],
              "default": DEFAULT_MODEL},
-            {"type": "input",   "id": "confidence", "label": "Min confidence", "default": "0.25"},
-            {"type": "input",   "id": "iou",         "label": "IoU threshold",  "default": "0.5"},
-            {"type": "button",  "label": "Load model", "action": "load_model", "style": "primary"},
+            {"type": "input",   "id": "confidence",    "label": "Min confidence",  "default": "0.25"},
+            {"type": "input",   "id": "iou",            "label": "IoU threshold",   "default": "0.7"},
+            {"type": "input",   "id": "track_buffer",   "label": "Track buffer (frames)", "default": "5"},
+            {"type": "input",   "id": "match_thresh",   "label": "Match threshold",  "default": "0.95"},
+            {"type": "button",  "label": "Load model",  "action": "load_model", "style": "primary"},
+            {"type": "dropdown", "id": "viz_mode",      "label": "Visualization",
+             "options": ["all boxes", "target only", "target + dim others"], "default": "all boxes"},
+            {"type": "dropdown", "id": "show_trails",   "label": "Trails",
+             "options": ["no", "yes"], "default": "no"},
         ],
         "outputs": [
             {"type": "text", "id": "model_status", "label": "Model"},
@@ -150,8 +156,21 @@ def start_live(ctx, params):
             return {"success": False}
 
         confidence   = max(0.01, min(0.99, _safe_float(params.get("confidence"),  0.25)))
-        iou          = max(0.1,  min(0.99, _safe_float(params.get("iou"),          0.5)))
+        iou          = max(0.1,  min(0.99, _safe_float(params.get("iou"),          0.7)))
         lost_timeout = max(0.5,  min(60.0, _safe_float(params.get("lost_timeout"), 4.0)))
+        track_buffer = max(1,    min(300,  int(_safe_float(params.get("track_buffer"), 5))))
+        match_thresh = max(0.1,  min(1.0,  _safe_float(params.get("match_thresh"), 0.95)))
+
+        # Générer bytetrack custom yaml
+        yaml_path = os.path.join(_HERE, "bytetrack_custom.yaml")
+        with open(yaml_path, "w") as f:
+            f.write("tracker_type: bytetrack\n")
+            f.write("track_high_thresh: %.2f\n" % max(0.1, _safe_float(params.get("confidence"), 0.25)))
+            f.write("track_low_thresh: 0.1\n")
+            f.write("new_track_thresh: %.2f\n" % max(0.1, _safe_float(params.get("confidence"), 0.25)))
+            f.write("track_buffer: %d\n" % track_buffer)
+            f.write("match_thresh: %.2f\n" % match_thresh)
+            f.write("fuse_score: True\n")
 
         _stop_event.clear()
         _selected_id = None
@@ -161,7 +180,7 @@ def start_live(ctx, params):
 
         _worker = threading.Thread(
             target=_loop,
-            args=(ctx, picam, confidence, iou, lost_timeout),
+            args=(ctx, picam, confidence, iou, lost_timeout, yaml_path),
             daemon=True,
         )
         _worker.start()
@@ -251,7 +270,7 @@ def on_unload(ctx):
         worker.join(timeout=3.0)
 
 
-def _loop(ctx, picam, confidence, iou, lost_timeout):
+def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
     global _worker, _selected_id, _last_seen, _tracking, _last_params
 
     try:
@@ -266,6 +285,7 @@ def _loop(ctx, picam, confidence, iou, lost_timeout):
         last_ui        = 0.0
         last_move      = 0.0
         last_annotated = None
+        _trails        = {}  # id -> list of (cx, cy)
 
         while not _stop_event.is_set():
             frame_raw = picam.capture_array("main")
@@ -281,12 +301,20 @@ def _loop(ctx, picam, confidence, iou, lost_timeout):
             else:
                 rgb = frame_raw[:, :, :3]
 
-            results   = model.track(source=rgb, persist=True, tracker="bytetrack.yaml",
+            results   = model.track(source=rgb, persist=True, tracker=yaml_path,
                                     conf=confidence, iou=iou, verbose=False)
             result    = results[0]
-            annotated = cv2.cvtColor(result.plot(), cv2.COLOR_BGR2RGB)
-            last_annotated = annotated
             h, w      = rgb.shape[:2]
+
+            with _lock:
+                viz_mode   = str(_last_params.get("viz_mode",    "all boxes"))
+                show_trails = str(_last_params.get("show_trails", "no")) == "yes"
+
+            # Rendu de base selon viz_mode
+            if viz_mode == "all boxes":
+                annotated = cv2.cvtColor(result.plot(), cv2.COLOR_BGR2RGB)
+            else:
+                annotated = rgb.copy()
 
             dets = []
             if result.boxes is not None and result.boxes.id is not None:
@@ -303,7 +331,59 @@ def _loop(ctx, picam, confidence, iou, lost_timeout):
                         "cls":  result.names.get(int(cls), str(cls)),
                     })
 
+            # Trails update
+            det_ids = {d["id"] for d in dets}
+            for d in dets:
+                tid_ = d["id"]
+                x1_, y1_, x2_, y2_ = d["box"]
+                cx_ = int((x1_ + x2_) / 2)
+                cy_ = int((y1_ + y2_) / 2)
+                if tid_ not in _trails:
+                    _trails[tid_] = []
+                _trails[tid_].append((cx_, cy_))
+                if len(_trails[tid_]) > 60:
+                    _trails[tid_] = _trails[tid_][-60:]
+            for tid_ in list(_trails):
+                if tid_ not in det_ids:
+                    _trails.pop(tid_, None)
+
+            # viz_mode: dim others ou target only — dessiner boîtes manuellement
+            if viz_mode != "all boxes":
+                with _lock:
+                    _target_now = _selected_id
+                    _tmode_now  = str(_last_params.get("track_mode", "id"))
+                for d in dets:
+                    x1_, y1_, x2_, y2_ = [int(v) for v in d["box"]]
+                    is_target = (_tmode_now == "id" and d["id"] == _target_now)
+                    if viz_mode == "target only" and not is_target:
+                        continue
+                    color = (0, 255, 0) if is_target else (120, 120, 120)
+                    alpha = 1.0 if is_target else 0.3
+                    if alpha < 1.0:
+                        overlay = annotated.copy()
+                        cv2.rectangle(overlay, (x1_, y1_), (x2_, y2_), color, 1)
+                        cv2.addWeighted(overlay, alpha, annotated, 1 - alpha, 0, annotated)
+                    else:
+                        cv2.rectangle(annotated, (x1_, y1_), (x2_, y2_), color, 2)
+                        cv2.putText(annotated, "ID %d" % d["id"],
+                                    (x1_, max(12, y1_ - 4)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+
+            # Trails dessin
+            if show_trails:
+                with _lock:
+                    _target_now = _selected_id
+                for tid_, pts in _trails.items():
+                    if len(pts) < 2:
+                        continue
+                    color = (0, 255, 100) if tid_ == _target_now else (180, 180, 180)
+                    for i in range(1, len(pts)):
+                        alpha = i / len(pts)
+                        c = tuple(int(v * alpha) for v in color)
+                        cv2.line(annotated, pts[i-1], pts[i], c, 2)
+
             now = time.monotonic()
+            last_annotated = annotated
 
             if last_annotated is not None and (now - last_move) < MOVE_FREEZE:
                 if now - last_ui >= 0.20:
