@@ -12,7 +12,7 @@
   {
     "id": "yolo-tracker",
     "name": "YOLO Tracker",
-    "version": "1.2.0",
+    "version": "1.4.0",
     "description": "Live YOLO/ByteTrack object tracking — select target, stage follows.",
     "author": "Hugo Le Guenno",
     "folder": "yolo-tracker",
