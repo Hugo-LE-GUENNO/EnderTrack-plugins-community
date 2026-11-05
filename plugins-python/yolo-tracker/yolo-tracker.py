@@ -20,7 +20,7 @@ def _list_pt(folder):
 
 
 NAME        = "YOLO Tracker"
-VERSION     = "1.4.0"
+VERSION     = "1.4.1"
 DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 
 SECTIONS = {
