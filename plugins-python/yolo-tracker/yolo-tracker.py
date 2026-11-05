@@ -60,7 +60,8 @@ SECTIONS = {
         ],
         "outputs": [
             {"type": "text",  "id": "status",      "label": "Status"},
-            {"type": "text",  "id": "ids",         "label": "Detected IDs"},
+            {"type": "table", "id": "ids",         "label": "Detected",
+             "columns": ["ID", "Class", "Conf%"]},
             {"type": "text",  "id": "target",      "label": "Target"},
             {"type": "text",  "id": "coordinates", "label": "Coordinates"},
             {"type": "image", "id": "live_image",  "label": "Live"},
@@ -525,10 +526,11 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
                                     (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 165, 255), 2)
 
             if now - last_ui >= 0.20:
-                ids_text = "   ".join(
-                    "ID %d %s %.0f%%" % (d["id"], d["cls"], d["conf"] * 100) for d in dets
-                ) if dets else "No detections"
-                ctx.update_output("ids", ids_text)
+                ctx.reset_graph("ids")  # reset table
+                for d in dets:
+                    ctx.append_table_row("ids", [str(d["id"]), d["cls"], "%.0f" % (d["conf"] * 100)])
+                if not dets:
+                    ctx.append_table_row("ids", ["—", "—", "—"])
                 ctx.update_image("live_image", annotated)
                 last_ui = now
 
