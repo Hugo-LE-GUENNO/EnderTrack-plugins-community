@@ -359,11 +359,10 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
                     if viz_mode == "target only" and not is_target:
                         continue
                     color = (0, 255, 0) if is_target else (120, 120, 120)
-                    alpha = 1.0 if is_target else 0.3
-                    if alpha < 1.0:
+                    if not is_target:
                         overlay = annotated.copy()
                         cv2.rectangle(overlay, (x1_, y1_), (x2_, y2_), color, 1)
-                        cv2.addWeighted(overlay, alpha, annotated, 1 - alpha, 0, annotated)
+                        annotated = cv2.addWeighted(overlay, 0.3, annotated, 0.7, 0)
                     else:
                         cv2.rectangle(annotated, (x1_, y1_), (x2_, y2_), color, 2)
                         cv2.putText(annotated, "ID %d" % d["id"],
@@ -374,7 +373,7 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
             if show_trails:
                 with _lock:
                     _target_now = _selected_id
-                for tid_, pts in _trails.items():
+                for tid_, pts in list(_trails.items()):
                     if len(pts) < 2:
                         continue
                     color = (0, 255, 100) if tid_ == _target_now else (180, 180, 180)
