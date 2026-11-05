@@ -20,7 +20,7 @@ def _list_pt(folder):
 
 
 NAME        = "YOLO Tracker"
-VERSION     = "1.4.1"
+VERSION     = "1.4.2"
 DESCRIPTION = "Live YOLO/ByteTrack — select target, stage follows."
 
 SECTIONS = {
@@ -36,10 +36,6 @@ SECTIONS = {
             {"type": "input",   "id": "track_buffer",   "label": "Track buffer (frames)", "default": "5"},
             {"type": "input",   "id": "match_thresh",   "label": "Match threshold",  "default": "0.95"},
             {"type": "button",  "label": "Load model",  "action": "load_model", "style": "primary"},
-            {"type": "dropdown", "id": "viz_mode",      "label": "Visualization",
-             "options": ["all boxes", "target only", "target + dim others"], "default": "all boxes"},
-            {"type": "dropdown", "id": "show_trails",   "label": "Trails",
-             "options": ["no", "yes"], "default": "no"},
         ],
         "outputs": [
             {"type": "text", "id": "model_status", "label": "Model"},
@@ -49,6 +45,10 @@ SECTIONS = {
         "inputs": [
             {"type": "button",   "label": "Start live", "action": "start_live", "style": "primary"},
             {"type": "button",   "label": "Stop live",  "action": "stop_live"},
+            {"type": "dropdown", "id": "viz_mode",      "label": "Visualization",
+             "options": ["all boxes", "target only", "target + dim others"], "default": "all boxes"},
+            {"type": "dropdown", "id": "show_trails",   "label": "Trails",
+             "options": ["no", "yes"], "default": "no"},
             {"type": "dropdown", "id": "track_mode",   "label": "Track mode",
              "options": ["id", "class"], "default": "id"},
             {"type": "dropdown", "id": "track_class",  "label": "Track class", "options": ["—"], "default": "—"},
@@ -311,11 +311,11 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
                 viz_mode   = str(_last_params.get("viz_mode",    "all boxes"))
                 show_trails = str(_last_params.get("show_trails", "no")) == "yes"
 
-            # Rendu de base selon viz_mode
+            # Rendu de base selon viz_mode — tout en BGR
             if viz_mode == "all boxes":
-                annotated = cv2.cvtColor(result.plot(), cv2.COLOR_BGR2RGB)
+                annotated = result.plot()  # BGR natif
             else:
-                annotated = rgb.copy()
+                annotated = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
             dets = []
             if result.boxes is not None and result.boxes.id is not None:
@@ -387,7 +387,7 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
 
             if last_annotated is not None and (now - last_move) < MOVE_FREEZE:
                 if now - last_ui >= 0.20:
-                    ctx.update_image("live_image", last_annotated)
+                    ctx.update_image("live_image", cv2.cvtColor(last_annotated, cv2.COLOR_BGR2RGB))
                     last_ui = now
                 _stop_event.wait(0.005)
                 continue
@@ -530,7 +530,7 @@ def _loop(ctx, picam, confidence, iou, lost_timeout, yaml_path):
                     ctx.append_table_row("ids", [str(d["id"]), d["cls"], "%.0f" % (d["conf"] * 100)])
                 if not dets:
                     ctx.append_table_row("ids", ["—", "—", "—"])
-                ctx.update_image("live_image", annotated)
+                ctx.update_image("live_image", cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB))
                 last_ui = now
 
             _stop_event.wait(0.005)
