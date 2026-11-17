@@ -18,5 +18,15 @@
     "folder": "yolo-tracker",
     "main": "yolo-tracker.py",
     "files": ["yolo-tracker.py", "models/.gitkeep"]
+  },
+  {
+    "id": "enderhuman",
+    "name": "EnderHuman",
+    "version": "1.0.0",
+    "description": "Chat with an LLM to control the microscope in natural language.",
+    "author": "Hugo Le Guenno",
+    "folder": "enderhuman",
+    "main": "enderhuman.py",
+    "files": ["enderhuman.py"]
   }
 ]
