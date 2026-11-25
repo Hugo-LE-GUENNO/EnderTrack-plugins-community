@@ -10,6 +10,16 @@
     "files": ["tempo-bed.py"]
   },
   {
+    "id": "spy-position",
+    "name": "Spy Position",
+    "version": "1.0.0",
+    "description": "Poll stage position via M114 at regular intervals.",
+    "author": "Hugo Le Guenno",
+    "folder": "spy-position",
+    "main": "spy-position.py",
+    "files": ["spy-position.py"]
+  },
+  {
     "id": "yolo-tracker",
     "name": "YOLO Tracker",
     "version": "1.4.3",
