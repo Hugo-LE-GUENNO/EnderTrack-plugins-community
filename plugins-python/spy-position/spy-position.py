@@ -36,6 +36,7 @@ def _loop(ctx, interval):
                 try:
                     p = stage.get_position(as_dict=True)
                     ctx.update_output("position", "X %.3f  Y %.3f  Z %.3f" % (p['X'], p['Y'], p['Z']))
+                    ctx.bus.publish('position:gcode', {'x': p['X'], 'y': p['Y'], 'z': p['Z']})
                 except Exception as e:
                     ctx.update_output("position", "Error: %s" % e)
             else:
